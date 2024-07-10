@@ -1,141 +1,160 @@
-# team.py
-import json
-import os
-from datetime import datetime
-from base import TeamBase
+from flask import Flask, request, jsonify
+from user import UserManagement
+from team import TeamManagement
+from project_board import ProjectBoardManagement
 
-class TeamManagement(TeamBase):
-    def __init__(self, db_path='db'):
-        self.db_path = db_path
-        self.teams_file = os.path.join(db_path, 'teams.json')
-        self.users_file = os.path.join(db_path, 'users.json')
-        self.load_data()
+app = Flask(__name__)
 
-    def load_data(self):
-        if not os.path.exists(self.teams_file):
-            self.teams = []
-        else:
-            with open(self.teams_file, 'r') as f:
-                self.teams = json.load(f)
+user_management = UserManagement()
+team_management = TeamManagement()
+project_board_management = ProjectBoardManagement()
 
-        if not os.path.exists(self.users_file):
-            self.users = []
-        else:
-            with open(self.users_file, 'r') as f:
-                self.users = json.load(f)
+@app.route('/users', methods=['POST'])
+def create_user():
+    request_data = request.get_json()
+    try:
+        response = user_management.create_user(json.dumps(request_data))
+        return jsonify(json.loads(response)), 201
+    except ValueError as e:
+        return str(e), 400
 
-    def save_data(self):
-        with open(self.teams_file, 'w') as f:
-            json.dump(self.teams, f)
-        with open(self.users_file, 'w') as f:
-            json.dump(self.users, f)
+@app.route('/users', methods=['GET'])
+def list_users():
+    response = user_management.list_users()
+    return jsonify(json.loads(response))
 
-    def create_team(self, request: str) -> str:
-        request_data = json.loads(request)
-        team_id = len(self.teams) + 1
-        team_name = request_data['name']
-        
-        # Constraints validation
-        if any(team['name'] == team_name for team in self.teams):
-            raise ValueError("Team name must be unique")
-        if len(team_name) > 64:
-            raise ValueError("Team name can be max 64 characters")
-        if 'description' in request_data and len(request_data['description']) > 128:
-            raise ValueError("Description can be max 128 characters")
-        
-        new_team = {
-            "id": team_id,
-            "name": team_name,
-            "description": request_data.get("description", ""),
-            "creation_time": datetime.now().isoformat(),
-            "admin": request_data["admin"],
-            "users": [request_data["admin"]]
-        }
-        self.teams.append(new_team)
-        self.save_data()
-        return json.dumps({"id": team_id})
+@app.route('/users/<user_id>', methods=['GET'])
+def describe_user(user_id):
+    try:
+        response = user_management.describe_user(json.dumps({"id": user_id}))
+        return jsonify(json.loads(response))
+    except ValueError as e:
+        return str(e), 404
 
-    def list_teams(self) -> str:
-        teams_list = [{
-            "id": team["id"],
-            "name": team["name"],
-            "description": team["description"],
-            "creation_time": team["creation_time"],
-            "admin": team["admin"]
-        } for team in self.teams]
-        return json.dumps(teams_list)
+@app.route('/users/<user_id>', methods=['PUT'])
+def update_user(user_id):
+    request_data = request.get_json()
+    try:
+        response = user_management.update_user(json.dumps({"id": user_id, "user": request_data}))
+        return jsonify(json.loads(response)), 200
+    except ValueError as e:
+        return str(e), 400
 
-    def describe_team(self, request: str) -> str:
-        request_data = json.loads(request)
-        team_id = request_data["id"]
-        
-        team = next((t for t in self.teams if t["id"] == team_id), None)
-        if not team:
-            raise ValueError("Team not found")
-        
-        return json.dumps({
-            "id": team["id"],
-            "name": team["name"],
-            "description": team["description"],
-            "creation_time": team["creation_time"],
-            "admin": team["admin"]
-        })
+@app.route('/users/<user_id>/teams', methods=['GET'])
+def get_user_teams(user_id):
+    try:
+        response = user_management.get_user_teams(json.dumps({"id": user_id}))
+        return jsonify(json.loads(response))
+    except ValueError as e:
+        return str(e), 404
 
-    def update_team(self, request: str) -> str:
-        request_data = json.loads(request)
-        team_id = request_data["id"]
-        new_team_data = request_data["team"]
-        
-        team = next((t for t in self.teams if t["id"] == team_id), None)
-        if not team:
-            raise ValueError("Team not found")
-        
-        if "name" in new_team_data and any(t['name'] == new_team_data['name'] for t in self.teams if t["id"] != team_id):
-            raise ValueError("Team name must be unique")
-        if "name" in new_team_data and len(new_team_data["name"]) > 64:
-            raise ValueError("Team name can be max 64 characters")
-        if "description" in new_team_data and len(new_team_data["description"]) > 128:
-            raise ValueError("Description can be max 128 characters")
-        
-        team.update(new_team_data)
-        self.save_data()
-        return json.dumps({})
+@app.route('/teams', methods=['POST'])
+def create_team():
+    request_data = request.get_json()
+    try:
+        response = team_management.create_team(json.dumps(request_data))
+        return jsonify(json.loads(response)), 201
+    except ValueError as e:
+        return str(e), 400
 
-    def add_users_to_team(self, request: str):
-        request_data = json.loads(request)
-        team_id = request_data["id"]
-        new_users = request_data["users"]
-        
-        team = next((t for t in self.teams if t["id"] == team_id), None)
-        if not team:
-            raise ValueError("Team not found")
-        if len(team["users"]) + len(new_users) > 50:
-            raise ValueError("Cannot add more than 50 users to a team")
-        
-        team["users"].extend(new_users)
-        self.save_data()
-        return json.dumps({})
+@app.route('/teams', methods=['GET'])
+def list_teams():
+    response = team_management.list_teams()
+    return jsonify(json.loads(response))
 
-    def remove_users_from_team(self, request: str):
-        request_data = json.loads(request)
-        team_id = request_data["id"]
-        users_to_remove = request_data["users"]
-        
-        team = next((t for t in self.teams if t["id"] == team_id), None)
-        if not team:
-            raise ValueError("Team not found")
-        
-        team["users"] = [user for user in team["users"] if user not in users_to_remove]
-        self.save_data()
-        return json.dumps({})
+@app.route('/teams/<team_id>', methods=['GET'])
+def describe_team(team_id):
+    try:
+        response = team_management.describe_team(json.dumps({"id": team_id}))
+        return jsonify(json.loads(response))
+    except ValueError as e:
+        return str(e), 404
 
-    def list_team_users(self, request: str):
-        request_data = json.loads(request)
-        team_id = request_data["id"]
-        
-        team = next((t for t in self.teams if t["id"] == team_id), None)
-        if not team:
-            raise ValueError("Team not found")
-        
-        users_list = [{"id": user, "name": user, "display_name": user} for user in team["users"]]
-        return json.dumps(users_list)
+@app.route('/teams/<team_id>', methods=['PUT'])
+def update_team(team_id):
+    request_data = request.get_json()
+    try:
+        response = team_management.update_team(json.dumps({"id": team_id, "team": request_data}))
+        return jsonify(json.loads(response)), 200
+    except ValueError as e:
+        return str(e), 400
+
+@app.route('/teams/<team_id>/users', methods=['POST'])
+def add_users_to_team(team_id):
+    request_data = request.get_json()
+    try:
+        response = team_management.add_users_to_team(json.dumps({"id": team_id, "users": request_data["users"]}))
+        return jsonify(json.loads(response)), 200
+    except ValueError as e:
+        return str(e), 400
+
+@app.route('/teams/<team_id>/users', methods=['DELETE'])
+def remove_users_from_team(team_id):
+    request_data = request.get_json()
+    try:
+        response = team_management.remove_users_from_team(json.dumps({"id": team_id, "users": request_data["users"]}))
+        return jsonify(json.loads(response)), 200
+    except ValueError as e:
+        return str(e), 400
+
+@app.route('/teams/<team_id>/users', methods=['GET'])
+def list_team_users(team_id):
+    try:
+        response = team_management.list_team_users(json.dumps({"id": team_id}))
+        return jsonify(json.loads(response))
+    except ValueError as e:
+        return str(e), 404
+
+@app.route('/boards', methods=['POST'])
+def create_board():
+    request_data = request.get_json()
+    try:
+        response = project_board_management.create_board(json.dumps(request_data))
+        return jsonify(json.loads(response)), 201
+    except ValueError as e:
+        return str(e), 400
+
+@app.route('/boards/<board_id>/close', methods=['POST'])
+def close_board(board_id):
+    try:
+        response = project_board_management.close_board(json.dumps({"id": board_id}))
+        return jsonify(json.loads(response)), 200
+    except ValueError as e:
+        return str(e), 400
+
+@app.route('/boards/<board_id>/tasks', methods=['POST'])
+def add_task(board_id):
+    request_data = request.get_json()
+    try:
+        response = project_board_management.add_task(json.dumps(request_data))
+        return jsonify(json.loads(response)), 201
+    except ValueError as e:
+        return str(e), 400
+
+@app.route('/tasks/<task_id>', methods=['PUT'])
+def update_task_status(task_id):
+    request_data = request.get_json()
+    try:
+        response = project_board_management.update_task_status(json.dumps({"id": task_id, "status": request_data["status"]}))
+        return jsonify(json.loads(response)), 200
+    except ValueError as e:
+        return str(e), 400
+
+@app.route('/teams/<team_id>/boards', methods=['GET'])
+def list_boards(team_id):
+    try:
+        response = project_board_management.list_boards(json.dumps({"id": team_id}))
+        return jsonify(json.loads(response))
+    except ValueError as e:
+        return str(e), 404
+
+@app.route('/boards/<board_id>/export', methods=['POST'])
+def export_board(board_id):
+    try:
+        response = project_board_management.export_board(json.dumps({"id": board_id}))
+        return jsonify(json.loads(response)), 200
+    except ValueError as e:
+        return str(e), 400
+
+if __name__ == '__main__':
+    app.run(debug=True)
